@@ -21,6 +21,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.Map;
 import java.util.Set;
 
 import gov.nasa.jpf.Config;
@@ -226,9 +227,9 @@ public class JPF_java_lang_Class extends NativePeer {
     ClassInfo ci = env.getReferredClassInfo(robj);   // what are we
     MethodInfo miCtor = ci.getMethod("<init>()V", false);
 
-    // According to Java SE 8 API Specification,
-    // If 'the class has no nullary constructor', this method
-    // should throws java.lang.InstantiationException
+    // According to Java SE 11 API Specification,
+    // If "the class has no nullary constructor", this method
+    // should throw java.lang.InstantiationException
     if (miCtor == null) {
       env.throwException("java.lang.InstantiationException", ci.getName());
       return MJIEnv.NULL;
@@ -498,7 +499,7 @@ public class JPF_java_lang_Class extends NativePeer {
   }
   
   // this is only used for system classes such as java.lang.reflect.Method
-  ClassInfo getInitializedClassInfo (MJIEnv env, String clsName){
+  static ClassInfo getInitializedClassInfo (MJIEnv env, String clsName){
     ThreadInfo ti = env.getThreadInfo();
     Instruction insn = ti.getPC();
     ClassInfo ci = ClassLoaderInfo.getSystemResolvedClassInfo( clsName);
@@ -950,5 +951,37 @@ public class JPF_java_lang_Class extends NativePeer {
     }
 
     return env.newString(rname);
+  }
+
+  @MJI
+  public int getModuleNameFromClassFileURL____Ljava_lang_String_2 (MJIEnv env, int objRef) {
+    // class name excludes ".class" file extension, hence class name length + 7
+    final int classNamelength = env.getReferredClassInfo(objRef).getName().length() + 7;
+
+    String classFileURL = env.getReferredClassInfo(objRef).getClassFileUrl();
+    //remove class name from class URL
+    classFileURL = classFileURL.substring(0, classFileURL.length() - classNamelength );
+
+    //return module name from classFileURL
+    return env.newString(classFileURL.substring(classFileURL.lastIndexOf('/') + 1));
+  }
+
+  @MJI
+  public int getModuleName____Ljava_lang_String_2 (MJIEnv env, int objRef) {
+    String className = env.getReferredClassInfo(objRef).getName();
+    Module module;
+
+    try {
+      module = Class.forName(className).getModule();
+    } catch (ClassNotFoundException e) {
+      return MJIEnv.NULL;
+    }
+
+    return env.newString(module.getName());
+  }
+
+  @MJI
+  public boolean isJPFClass____Z (MJIEnv env, int objRef) {
+    return env.getReferredClassInfo(objRef).isJPFClass;
   }
 }

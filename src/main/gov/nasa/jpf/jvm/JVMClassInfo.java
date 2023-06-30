@@ -65,6 +65,10 @@ public class JVMClassInfo extends ClassInfo {
    * (a) it can set ClassInfo fields, (b) it can extend ClassFileReaderAdapter, and (c) we don't clutter JVMClassInfo with
    * fields that are only temporarily used during parsing
    */
+
+  // To store partially resolved classes in setBootstrapMethod
+  protected static HashMap resolvedClasses = new HashMap<String, JVMClassInfo>();
+
   class Initializer extends ClassFileReaderAdapter {
     protected ClassFile cf;
     protected JVMCodeBuilder cb;
@@ -116,34 +120,67 @@ public class JVMClassInfo extends ClassInfo {
     }
     
     @Override
-    public void setBootstrapMethod (ClassFile cf, Object tag, int idx, int refKind, String cls, String mth, String descriptor, int[] cpArgs) {    
-   
-      int lambdaRefKind = cf.mhRefTypeAt(cpArgs[1]);
+    public void setBootstrapMethod (ClassFile cf, Object tag, int idx, int refKind, String cls, String mth,
+                                     String parameters, String descriptor, int[] cpArgs) {
+      String clsName = null;
+      ClassInfo enclosingLambdaCls;
       
-      int mrefIdx = cf.mhMethodRefIndexAt(cpArgs[1]);
-      String clsName = cf.methodClassNameAt(mrefIdx).replace('/', '.');
-      ClassInfo eclosingLambdaCls;
-      
-      if(!clsName.equals(JVMClassInfo.this.getName())) {
-        eclosingLambdaCls = ClassLoaderInfo.getCurrentResolvedClassInfo(clsName);
-      } else {
-        eclosingLambdaCls = JVMClassInfo.this;
+      if (cpArgs.length > 1) {
+        // For Lambdas
+      	int mrefIdx = cf.mhMethodRefIndexAt(cpArgs[1]);
+        clsName = cf.methodClassNameAt(mrefIdx).replace('/', '.');
+
+        if(!clsName.equals(JVMClassInfo.this.getName())) {
+          if (JVMClassInfo.resolvedClasses.containsKey(clsName))
+            enclosingLambdaCls = (JVMClassInfo) JVMClassInfo.resolvedClasses.get(clsName);
+          else
+            enclosingLambdaCls = ClassLoaderInfo.getCurrentResolvedClassInfo(clsName);
+        } else {
+          enclosingLambdaCls = JVMClassInfo.this;
+          JVMClassInfo.resolvedClasses.put(clsName, enclosingLambdaCls);
+        }
+
+        assert (enclosingLambdaCls!=null);
+
+      	int lambdaRefKind = cf.mhRefTypeAt(cpArgs[1]);
+      	String mthName = cf.methodNameAt(mrefIdx);
+        String signature = cf.methodDescriptorAt(mrefIdx);
+        String samDescriptor = cf.methodTypeDescriptorAt(cpArgs[2]); 
+        
+        setBootstrapMethodInfo(enclosingLambdaCls, mthName, signature, idx, lambdaRefKind, samDescriptor, null,
+                              BootstrapMethodInfo.BMType.LAMBDA_EXPRESSION);
       }
-      
-      assert (eclosingLambdaCls!=null);
-      
-      String mthName = cf.methodNameAt(mrefIdx);
-      String signature = cf.methodDescriptorAt(mrefIdx);
-      
-      MethodInfo lambdaBody = eclosingLambdaCls.getMethod(mthName + signature, false);
-      
-      String samDescriptor = cf.methodTypeDescriptorAt(cpArgs[2]);
-            
-      if(lambdaBody!=null) {
-        bootstrapMethods[idx] = new BootstrapMethodInfo(lambdaRefKind, JVMClassInfo.this, lambdaBody, samDescriptor);
+      else {
+        // For String Concatenation
+        clsName = cls; 
+          
+        if(!clsName.equals(JVMClassInfo.this.getName())) {
+        enclosingLambdaCls = ClassLoaderInfo.getCurrentResolvedClassInfo(clsName);
+        } else {
+          enclosingLambdaCls = JVMClassInfo.this;
+        }
+
+        assert (enclosingLambdaCls!=null);
+
+        String bmArg = cf.getBmArgString(cpArgs[0]);
+
+        setBootstrapMethodInfo(enclosingLambdaCls, mth, parameters, idx, refKind, descriptor, bmArg,
+                BootstrapMethodInfo.BMType.STRING_CONCATENATION);
       }
+
     }
     
+    // helper method for setBootstrapMethod()
+    public void setBootstrapMethodInfo(ClassInfo enclosingCls, String mthName, String parameters, int idx, int refKind, 
+                              String descriptor, String bmArg,BootstrapMethodInfo.BMType bmType){
+      MethodInfo methodBody = enclosingCls.getMethod(mthName + parameters, false);
+      
+      if(methodBody!=null) {
+        bootstrapMethods[idx] = new BootstrapMethodInfo(refKind, JVMClassInfo.this, methodBody, descriptor
+                , bmArg, bmType);
+      }
+    }
+
    //--- inner/enclosing classes 
     @Override
     public void setInnerClassCount (ClassFile cf, Object tag, int classCount) {
@@ -749,6 +786,11 @@ public class JVMClassInfo extends ClassInfo {
     int modifiers = fiMethod.getModifiers() & (~Modifier.ABSTRACT);
     int nLocals = fiMethod.getArgumentsSize();
     int nOperands = this.nInstanceFields + nLocals;
+    // If it is a REF_newInvokeSpecial method handle,
+    // we need one more stack slot to store the dupped object reference
+    if (bootstrapMethod.getLambdaRefKind() == ClassFile.REF_NEW_INVOKESPECIAL) {
+      nOperands += 1;
+    }
 
     MethodInfo mi = new MethodInfo(fiMethod.getName(), fiMethod.getSignature(), modifiers, nLocals, nOperands);
     mi.linkToClass(this);
@@ -949,7 +991,9 @@ public class JVMClassInfo extends ClassInfo {
     
     String calleeClass = miCallee.getClassName(); 
     
-    // adding the bytecode instruction to invoke lambda method
+    // Add the bytecode instruction to invoke lambda method.
+    // Implement bytecode behaviors for method handles.
+    // See https://docs.oracle.com/javase/specs/jvms/se11/html/jvms-5.html#jvms-5.4.3.5
     switch (bootstrapMethod.getLambdaRefKind()) {
     case ClassFile.REF_INVOKESTATIC:
       cb.invokestatic(calleeClass, calleeName, calleeSig);
@@ -962,6 +1006,7 @@ public class JVMClassInfo extends ClassInfo {
       break;
     case ClassFile.REF_NEW_INVOKESPECIAL:
       cb.new_(calleeClass);
+      cb.dup();
       cb.invokespecial(calleeClass, calleeName, calleeSig);
       break;
     case ClassFile.REF_INVOKESPECIAL:

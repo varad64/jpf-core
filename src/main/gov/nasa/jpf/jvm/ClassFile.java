@@ -20,6 +20,7 @@ package gov.nasa.jpf.jvm;
 
 import java.io.File;
 
+import java.util.*;
 import gov.nasa.jpf.JPFException;
 import gov.nasa.jpf.util.BailOut;
 import gov.nasa.jpf.util.BinaryClassSource;
@@ -56,6 +57,11 @@ public class ClassFile extends BinaryClassSource {
   public static final int REF_NEW_INVOKESPECIAL = 8;
   public static final int REF_INVOKEINTERFACE = 9;
 
+  //for debugging
+  public String className = null;//not used 
+
+  public ArrayList<String> classNames  = new ArrayList<String>(); 
+
   // used to store types in cpValue[]
   public static enum CpInfo {
     Unused_0,                 // 0
@@ -85,8 +91,29 @@ public class ClassFile extends BinaryClassSource {
   // the const pool
   int[] cpPos;     // cpPos[i] holds data start index for cp_entry i (0 is unused)
   Object[] cpValue; // cpValue[i] hold the String/Integer/Float/Double associated with corresponding cp_entries
-  
+
+  // Map index of bootstrap method to constant pool index of invokedynamic.
+  // We store this info because we need to get the call site descriptor of
+  // an invokedynamic when its corresponding BSM is parsed later.
+  //
+  // For each invokedynamic instruction, there is a bootstrap method in the class file, while
+  // multiple invokedynamic instructions may share one bootstrap method (an n-1 mapping).
+  // And there is also a CONSTANT_InvokeDynamic_info structure in the constant pool
+  // of the class file for each invokedynamic, while multiple invokedynamic instructions may
+  // share one such info (an n-1 mapping). The structure is roughly in the following form:
+  //              (bootstrap_method_index, call_site_descriptor)
+  // This information can be got when we parse the invokedynamic instruction.
+  // We also need it when we later parse bootstrap method because we need the
+  // call site descriptor. Thus, a Map is used to store the mapping of:
+  // bootstrap method index => constant pool index of CONSTANT_InvokeDynamic_info structure
+  //
+  // Later, when we parse bootstrap method, we can get constant pool index of
+  // that structure and use callSiteDescriptor() function to parse call site descriptor
+  // from that structure.
+  Map<Integer, Integer> bsmIdxToIndyCpIdx= new HashMap<>();
+
   //--- ctors
+
   public ClassFile (byte[] data, int offset){
     super(data,offset);
   }
@@ -285,17 +312,26 @@ public class ClassFile extends BinaryClassSource {
   public String methodClassNameAt(int methodRefInfoIdx){
     return (String) cpValue[ u2(cpPos[methodRefInfoIdx]+1)];
   }
+
   public String methodNameAt(int methodRefInfoIdx){
     return utf8At( u2( cpPos[ u2(cpPos[methodRefInfoIdx]+3)]+1));
   }
   public String methodDescriptorAt(int methodRefInfoIdx){
     return utf8At( u2( cpPos[ u2(cpPos[methodRefInfoIdx]+3)]+3));
+    // descriptor #336 ......  #330;#341 i.e u2( cpPos[ u2(cpPos[methodRefInfoIdx]+3)]+3 = u2( cpPos[336]+3)]+3
   }
 
   public String methodTypeDescriptorAt (int methodTypeInfoIdx){
     return utf8At( u2(cpPos[methodTypeInfoIdx]+1));
   }
   
+
+
+  public String getBmArgString(int cpIdx){
+    return utf8At( u2( cpPos[cpIdx]+1));
+  }
+
+
   public String interfaceMethodClassNameAt(int ifcMethodRefInfoIdx){
     return (String) cpValue[ u2(cpPos[ifcMethodRefInfoIdx]+1)];
   }
@@ -653,9 +689,9 @@ public class ClassFile extends BinaryClassSource {
     pos = p;    
   }
   private void setBootstrapMethod (ClassFileReader reader, Object tag, int idx, 
-                                   int refKind, String cls, String mth, String descriptor, int[] cpArgs){
+                                   int refKind, String cls, String mth, String parameters, String descriptor, int[] cpArgs){
     int p = pos;
-    reader.setBootstrapMethod( this, tag, idx, refKind, cls, mth, descriptor, cpArgs);
+    reader.setBootstrapMethod( this, tag, idx, refKind, cls, mth, parameters, descriptor, cpArgs);
     pos = p;    
   }
   private void setBootstrapMethodsDone (ClassFileReader reader, Object tag){
@@ -1024,7 +1060,7 @@ public class ClassFile extends BinaryClassSource {
           dataIdx[i] = j++;
 
           int iVal = (data[j++]&0xff)<<24 | (data[j++]&0xff)<<16 | (data[j++]&0xff)<<8 | (data[j++]&0xff);
-          values[i] = new Integer(iVal);
+          values[i] = iVal;
           break;
 
         case CONSTANT_FLOAT:  // Float_info  { u1 tag; u4 bytes; }
@@ -1032,14 +1068,14 @@ public class ClassFile extends BinaryClassSource {
 
           int iBits = (data[j++]&0xff)<<24 | (data[j++]&0xff)<<16 | (data[j++]&0xff)<<8 | (data[j++]&0xff);
           float fVal = Float.intBitsToFloat(iBits);
-          values[i] = new Float(fVal);
+          values[i] = fVal;
           break;
 
         case CONSTANT_LONG:  // Long_info { u1 tag; u4 high_bytes; u4 low_bytes; }
           dataIdx[i] = j++;
           long lVal =  (data[j++]&0xffL)<<56 | (data[j++]&0xffL)<<48 | (data[j++]&0xffL)<<40 | (data[j++]&0xffL)<<32
                     | (data[j++]&0xffL)<<24 | (data[j++]&0xffL)<<16 | (data[j++]&0xffL)<<8 | (data[j++]&0xffL);
-          values[i] = new Long(lVal);
+          values[i] = lVal;
 
           dataIdx[++i] = -1;  // 8 byte cpValue occupy 2 index slots
           break;
@@ -1050,7 +1086,7 @@ public class ClassFile extends BinaryClassSource {
           long lBits = (data[j++]&0xffL)<<56 | (data[j++]&0xffL)<<48 | (data[j++]&0xffL)<<40 | (data[j++]&0xffL)<<32
                     | (data[j++]&0xffL)<<24 | (data[j++]&0xffL)<<16 | (data[j++]&0xffL)<<8 | (data[j++]&0xffL);
           double dVal = Double.longBitsToDouble(lBits);
-          values[i] = new Double(dVal);
+          values[i] = dVal;
 
           dataIdx[++i] = -1;  // 8 byte cpValue occupy 2 index slots
           break;
@@ -1486,9 +1522,10 @@ public class ClassFile extends BinaryClassSource {
       
       String clsName = methodClassNameAt(mrefIdx);
       String mthName = methodNameAt(mrefIdx);
-      String descriptor = methodDescriptorAt(mrefIdx);
-      
-      setBootstrapMethod(reader, tag, i, refKind, clsName, mthName, descriptor, bmArgs);
+      String parameters = methodDescriptorAt(mrefIdx);
+      String descriptor= callSiteDescriptor(bsmIdxToIndyCpIdx.get(i));
+
+      setBootstrapMethod(reader, tag, i, refKind, clsName, mthName, parameters, descriptor, bmArgs);
     }
     
     setBootstrapMethodsDone( reader, tag);
@@ -2684,7 +2721,9 @@ public class ClassFile extends BinaryClassSource {
           reader.invokeinterface(cpIdx, count, zero);
           break;
         case 186: // invokedynamic
-          cpIdx = readU2(); // CP index of bootstrap method
+          cpIdx = readU2(); // CP index of invokedynamic
+          int bsmIdx = bootstrapMethodIndex(cpIdx);
+          bsmIdxToIndyCpIdx.put(bsmIdx, cpIdx);
           readUByte();  // 0
           readUByte(); //  0
           reader.invokedynamic(cpIdx);

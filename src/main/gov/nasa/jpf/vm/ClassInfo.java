@@ -30,6 +30,7 @@ import gov.nasa.jpf.util.OATHash;
 import gov.nasa.jpf.util.Source;
 
 import java.io.File;
+import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Modifier;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -249,8 +250,10 @@ public class ClassInfo extends InfoObject implements Iterable<MethodInfo>, Gener
 
   /** actions to be taken when an object of this type is gc'ed */
   protected ImmutableList<ReleaseAction> releaseActions; 
-          
-  
+
+  // To know if class is loaded from JVM or is JPF class      
+  protected boolean isJPFClass = false;
+
   static boolean init (Config config) {
 
     ClassInfo.config = config;
@@ -399,17 +402,19 @@ public class ClassInfo extends InfoObject implements Iterable<MethodInfo>, Gener
         for (String clsName : attrTypes){
           try {
             Class<?> attrCls = loader.loadClass(clsName);
-            Object attr = attrCls.newInstance(); // needs to have a default ctor
+            Object attr = attrCls.getDeclaredConstructor().newInstance(); // needs to have a default ctor
             infoObj.addAttr(attr);
             
           } catch (ClassNotFoundException cnfx){
             logger.warning("attribute class not found: " + clsName);
-            
+          } catch (NoSuchMethodException e) {
+            logger.warning("attribute class has no public default ctor: " + clsName);
           } catch (IllegalAccessException iax){
-            logger.warning("attribute class has no public default ctor: " + clsName);            
-            
+            logger.warning("attribute class's public default ctor is inaccessible: " + clsName);
           } catch (InstantiationException ix){
-            logger.warning("attribute class has no default ctor: " + clsName);            
+            logger.warning("underlying constructor is an abstract class: " + clsName);
+          } catch (InvocationTargetException e) {
+            logger.warning("attribute class's default ctor throws an exception: " + clsName);
           }
         }
       }
@@ -1579,6 +1584,42 @@ public class ClassInfo extends InfoObject implements Iterable<MethodInfo>, Gener
     return superClass == null && !isObjectClassInfo();
   }
 
+  /**
+   * checks whether the caller class is an enclosing class of 'this' class
+   */
+  public boolean isCallerEnclosingClass(String callerClassName) {
+    ClassInfo enclosingClass = this.getEnclosingClassInfo();
+    String enclosingClsName = null;
+
+    while (enclosingClass != null) {
+      enclosingClsName = enclosingClass.getName();
+      if (callerClassName.equals(enclosingClsName))
+        return true;
+
+      enclosingClass = enclosingClass.getEnclosingClassInfo();
+    }
+
+    return false;
+  }
+
+  public boolean isCallerSamePackage(String callerPkgName) {
+    return callerPkgName.equals(this.getPackageName());
+  }
+
+  public boolean isCallerSuperClass(String callerClassName) {
+    ClassInfo superClassInfo = this.superClass;
+    String superClassName = null;
+
+    while (superClassInfo != null) {
+      superClassName = superClassInfo.getName();
+      if (callerClassName.equals(superClassName))
+        return true;
+
+      superClassInfo = superClassInfo.superClass;
+    }
+
+    return false;
+  }
 
   boolean hasRefField (int ref, Fields fv) {
     ClassInfo c = this;
@@ -1884,6 +1925,16 @@ public class ClassInfo extends InfoObject implements Iterable<MethodInfo>, Gener
     return innerClassNames;
   }
   
+  // get class info of matched inner class
+  public ClassInfo getInnerClassInfo(String innerClassName) {
+    for (int i=0; i<innerClassNames.length; i++){
+      if(innerClassNames[i].equals(innerClassName))
+        return classLoader.getResolvedClassInfo(innerClassNames[i]);
+    }
+
+    return null;
+  }
+
   public ClassInfo[] getInnerClassInfos(){
     ClassInfo[] innerClassInfos = new ClassInfo[innerClassNames.length];
     

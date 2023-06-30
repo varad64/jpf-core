@@ -17,19 +17,8 @@
  */
 package gov.nasa.jpf.vm;
 
-import java.util.Map;
-
 import gov.nasa.jpf.annotation.MJI;
-import gov.nasa.jpf.vm.ClassPath;
-import gov.nasa.jpf.vm.ClassInfo;
-import gov.nasa.jpf.vm.ClassLoaderInfo;
-import gov.nasa.jpf.vm.ClassInfoException;
-import gov.nasa.jpf.vm.ClinitRequired;
-import gov.nasa.jpf.vm.ElementInfo;
-import gov.nasa.jpf.vm.Heap;
-import gov.nasa.jpf.vm.MJIEnv;
-import gov.nasa.jpf.vm.NativePeer;
-import gov.nasa.jpf.vm.ThreadInfo;
+import java.util.Map;
 
 /**
  * @author Nastaran Shafiei <nastaran.shafiei@gmail.com>
@@ -67,13 +56,21 @@ public class JPF_java_lang_ClassLoader extends NativePeer {
     ei.setReferenceField("parent", parentRef);
   }
 
+  //<2do> For a more complete ClassLoader landscape, this PlatformClassLoader might be seperated from
+  // the system classloader. But JPF hacks already class loading significant, so I think it is not to bad for now.
   @MJI
-  public int getSystemClassLoader____Ljava_lang_ClassLoader_2 (MJIEnv env, int clsObjRef) {
+  public int getPlatformClassLoader____Ljava_lang_ClassLoader_2(MJIEnv env, int clsObjRef) {
+    return getSystemClassLoader____Ljava_lang_ClassLoader_2(env, clsObjRef);
+  }
+
+  @MJI
+  public int getSystemClassLoader____Ljava_lang_ClassLoader_2(MJIEnv env, int clsObjRef) {
     return ClassLoaderInfo.getCurrentSystemClassLoader().getClassLoaderObjectRef();
   }
 
   @MJI
-  public int getResource0__Ljava_lang_String_2__Ljava_lang_String_2 (MJIEnv env, int objRef, int resRef){
+  public int getResource0__Ljava_lang_String_2__Ljava_lang_String_2(MJIEnv env, int objRef,
+      int resRef) {
     String rname = env.getStringObject(resRef);
 
     ClassLoaderInfo cl = env.getClassLoaderInfo(objRef);
@@ -261,6 +258,7 @@ public class JPF_java_lang_ClassLoader extends NativePeer {
     return pkgArr;
   }
 
+  @Deprecated( since = "java 9")
   @MJI
   public int getPackage__Ljava_lang_String_2__Ljava_lang_Package_2 (MJIEnv env, int objRef, int nameRef) {
     ClassLoaderInfo sysLoader = ClassLoaderInfo.getCurrentSystemClassLoader();
@@ -286,8 +284,17 @@ public class JPF_java_lang_ClassLoader extends NativePeer {
     int pkgRef = env.newObject(pkgClass);
     ElementInfo ei = env.getModifiableElementInfo(pkgRef);
 
-    ei.setReferenceField("pkgName", env.newString(pkgName));
-    ei.setReferenceField("loader", cl.getClassLoaderObjectRef());
+    ei.setReferenceField("name", env.newString(pkgName));
+    // the classloader is set to module in NamedPackage (superclass of Package)
+    ei.setReferenceField("module", cl.getClassLoaderObjectRef());
+
+    // get current system class loader and intialize class info for VersionInfo (inner class of Package class)
+    ClassLoaderInfo sysLoader = ClassLoaderInfo.getCurrentSystemClassLoader();
+    ClassInfo VersionInfoClass = sysLoader.getInitializedClassInfo("java.lang.Package$VersionInfo", env.getThreadInfo());
+
+    int VersionInfoRef = env.newObject(VersionInfoClass);
+    ei = env.getModifiableElementInfo(VersionInfoRef);
+
     // the rest of the fields set to some dummy value
     ei.setReferenceField("specTitle", env.newString("spectitle"));
     ei.setReferenceField("specVersion", env.newString("specversion"));
@@ -324,4 +331,32 @@ public class JPF_java_lang_ClassLoader extends NativePeer {
     ClassLoaderInfo cl = env.getClassLoaderInfo(objRef);
     cl.clearAssertionStatus();
   }
+  
+  @MJI
+  public int getDefinedPackage__Ljava_lang_String_2__Ljava_lang_Package_2 (MJIEnv env, int objRef, int nameRef) {
+    ClassLoaderInfo sysLoader = ClassLoaderInfo.getCurrentSystemClassLoader();
+
+    ClassInfo pkgClass = null; 
+    try {
+      pkgClass = sysLoader.getInitializedClassInfo(pkg_class_name, env.getThreadInfo());
+    } catch (ClinitRequired x){
+      env.handleClinitRequest(x.getRequiredClassInfo());
+      return MJIEnv.NULL;
+    }
+
+    ClassLoaderInfo cl = env.getClassLoaderInfo(objRef);
+    String pkgName = env.getStringObject(nameRef);
+    if(cl.getPackages().get(pkgName)!=null) {
+      return createPackageObject(env, pkgClass, pkgName, cl);
+    } else {
+      return MJIEnv.NULL;
+    }
+  }
+
+  @MJI
+  public int getDefinedPackages_____3Ljava_lang_Package_2 (MJIEnv env, int objRef) {
+    int rPackage = MJIEnv.NULL;
+    return rPackage;
+  }
+ 
 }

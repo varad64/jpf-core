@@ -31,6 +31,7 @@ import gov.nasa.jpf.Config;
 import gov.nasa.jpf.JPF;
 import gov.nasa.jpf.JPFException;
 import gov.nasa.jpf.SystemAttribute;
+import gov.nasa.jpf.jvm.JRTClassFileContainer;
 import gov.nasa.jpf.util.JPFLogger;
 import gov.nasa.jpf.util.SparseIntVector;
 import gov.nasa.jpf.util.StringSetMatcher;
@@ -93,7 +94,9 @@ public class ClassLoaderInfo
 
   protected ClassLoaderInfo parent;
 
-  
+  // To know if class is loaded from JVM or is JPF class
+  protected boolean isJPFClass = false;
+
   static class ClMemento implements Memento<ClassLoaderInfo> {
     // note that we don't have to store the invariants (gid, parent, isSystemClassLoader)
     ClassLoaderInfo cl;
@@ -351,12 +354,16 @@ public class ClassLoaderInfo
             try {
               log.info("loading class ", typeName, " from ",  url);
               ci = match.createClassInfo(this);
-              
+
             } catch (ClassParseException cpx){
               throw new ClassInfoException( "error parsing class", this, "java.lang.NoClassDefFoundError", typeName, cpx);
             }
-            
+            // to know whether class was loaded from JVM or is JPF class
+            ci.isJPFClass = isJPFClass;
             loadedClasses.put( url, ci);
+
+            // set false once class is loaded
+            isJPFClass = false;
           }
           
         } else { // no match found
@@ -449,10 +456,10 @@ public class ClassLoaderInfo
    * and contains a method that captures the behavior of the lambda expression.
    */
   public ClassInfo getResolvedFuncObjType (int bsIdx, ClassInfo fiClassInfo, String samUniqueName, BootstrapMethodInfo bmi, String[] freeVariableTypeNames) {
-    String typeName = bmi.enclosingClass.getName() + "$$Lambda$" + bsIdx;
+    String typeName = bmi.enclosingClass.getName() + "$" + bsIdx;
     
     ClassInfo funcObjType = resolvedClasses.get( typeName);
-    
+
     if (funcObjType == null) {
       funcObjType = fiClassInfo.createFuncObjClassInfo(bmi, typeName, samUniqueName, freeVariableTypeNames);
       resolvedClasses.put( typeName, funcObjType);
@@ -647,6 +654,9 @@ public class ClassLoaderInfo
     }
   }
 
+  /**
+   * @return a {@link ClassFileMatch} or null if a match is not found
+   */
   protected ClassFileMatch getMatch(String typeName) {
     if(ClassInfo.isBuiltinClass(typeName)) {
       return null;
@@ -657,6 +667,16 @@ public class ClassLoaderInfo
       match = cp.findMatch(typeName); 
     } catch (ClassParseException cfx){
       throw new JPFException("error reading class " + typeName, cfx);
+    }
+
+    if (match == null) {
+      // match not found in the classpath
+      // try to load from the run-time image
+      match = new JRTClassFileContainer().getMatch(typeName);
+    } else {
+      // set isJPFClass true if match is found in classpath
+      // i.e, not loaded from the run-time image
+      isJPFClass = true;
     }
 
     return match;

@@ -26,7 +26,6 @@ nbdist/
 .nb-gradle/
 
 ####### Covers Eclipse IDE #######
-.idea/
 .metadata
 tmp/
 *.tmp
@@ -48,6 +47,10 @@ tmp/
 .idea/**/tasks.xml
 .idea/dictionaries
 .idea/ant.xml
+.idea/misc.xml
+.idea/vcs.xml
+.idea/compiler.xml
+.idea/modules.xml
 
 # Sensitive or high-churn files:
 .idea/**/dataSources/
@@ -71,3 +74,9 @@ out/
 
 # JIRA plugin
 atlassian-ide-plugin.xml
+/.idea/
+/test.bat
+
+#local files
+local
+temp.ser

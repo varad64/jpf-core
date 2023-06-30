@@ -20,6 +20,7 @@ package java8;
 import gov.nasa.jpf.util.test.TestJPF;
 
 import java.util.function.Supplier;
+import java.util.stream.Collectors;
 
 import org.junit.Test;
 
@@ -45,7 +46,15 @@ public class LambdaTest extends TestJPF{
       (new Thread(r)).start();
     }
   }
-  
+
+  @Test
+  public void testNewSpecialMethodHandle() {
+    if(verifyNoPropertyViolation()) {
+      Supplier s = LambdaTest::new;
+      assertTrue(s.get().getClass() == this.getClass());
+    }
+  }
+
   public interface FI1 {
     void sam();
   }
@@ -114,7 +123,7 @@ public class LambdaTest extends TestJPF{
     }
   }
   
-  static Integer io = new Integer(20);
+  static Integer io = 20;
   
   @Test
   public void testClosure() {
@@ -307,5 +316,13 @@ public class LambdaTest extends TestJPF{
 
   private Supplier<String> getStringProvider(String object) {
     return () -> object == null ? "It was null" : object;
+  }
+
+  @Test
+  public void testLoadingClassWithManyBootstrapMethods() {
+    if(verifyNoPropertyViolation()) {
+      // java.util.stream.Collectors contains many bootstrap methods
+      Collectors.toSet();
+    }
   }
 }

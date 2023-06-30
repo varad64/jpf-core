@@ -37,6 +37,7 @@ package gov.nasa.jpf.test.java.lang;
 
 import gov.nasa.jpf.util.test.TestJPF;
 import gov.nasa.jpf.vm.Verify;
+import gov.nasa.jpf.test.test_classes.class_test.*;
 
 import java.io.Serializable;
 import java.lang.annotation.Inherited;
@@ -82,16 +83,7 @@ public class ClassTest extends TestJPF implements Cloneable, Serializable {
       Class<?> clazz = Class.forName("x.y.NonExisting");
     }
   }
-  
-  @Test 
-  public void testClassForNameExceptionForInvalidArrayType () throws ClassNotFoundException {
-    if (verifyUnhandledException("java.lang.ClassNotFoundException")) {
 
-      // Adapted from the Groovy library
-      // This tests how array types are handled properly in Types.java (issue #204)
-      Class<?> clazz = Class.forName("groovy.runtime.metaclass.[Ljava.lang.Object;MetaClass");
-    }
-  }
   
   static class X {
     static {
@@ -159,10 +151,10 @@ public class ClassTest extends TestJPF implements Cloneable, Serializable {
   }
   
   @Test 
-  public void testNewInstance () throws InstantiationException, IllegalAccessException {
+  public void testNewInstance () throws ReflectiveOperationException {
     if (verifyNoPropertyViolation()) {
       Class<?> clazz = ClassTest.class;
-      ClassTest o = (ClassTest) clazz.newInstance();
+      ClassTest o = (ClassTest) clazz.getDeclaredConstructor().newInstance();
       
       System.out.println("new instance: " + o);
       
@@ -172,27 +164,77 @@ public class ClassTest extends TestJPF implements Cloneable, Serializable {
       }
     }
   }
-  
-  static class InAccessible {
-    private InAccessible() {}
+
+  static class PrivateNestMate {
+    boolean assertData = true;
+
+    private PrivateNestMate() {}
   }
-  
+
   @Test 
-  public void testNewInstanceFailAccess () throws IllegalAccessException, InstantiationException {
-    if (verifyUnhandledException("java.lang.IllegalAccessException")){
-      Class<?> clazz = InAccessible.class;
-      clazz.newInstance();
+  public void testPrivateNestMateNewInstanceAccess () throws ReflectiveOperationException {
+    if (verifyNoPropertyViolation()) {
+      Class<?> clazz = PrivateNestMate.class;
+      PrivateNestMate clazzInstance = (PrivateNestMate) clazz.getDeclaredConstructor().newInstance();
+      assertTrue(clazzInstance.assertData);
     }
   }
-  
+
+  static class ProtectedNestMate {
+    boolean assertData = true;
+
+    protected ProtectedNestMate() {}
+  }
+
+  @Test 
+  public void testProtectedNestMateNewInstanceAccess () throws ReflectiveOperationException {
+    if (verifyNoPropertyViolation()) {
+      Class<?> clazz = ProtectedNestMate.class;
+      ProtectedNestMate clazzInstance = (ProtectedNestMate) clazz.getDeclaredConstructor().newInstance();
+      assertTrue(clazzInstance.assertData);
+    }
+  }
+
+  @Test 
+  public void testPrivateConstructorNewInstanceFailAccess () throws ReflectiveOperationException {
+    if (verifyUnhandledException("java.lang.IllegalAccessException")) {
+      Class<?> clazz = TestNewInstance.Private.class;
+      clazz.getDeclaredConstructor().newInstance();
+    }
+  }
+
+  @Test 
+  public void testProtectedConstructorNewInstanceAccess () throws ReflectiveOperationException {
+    if (verifyNoPropertyViolation()) {
+      Class<?> clazz = TestNewInstance.Protected.class;
+      TestNewInstance.Protected clazzInstance = (TestNewInstance.Protected) 
+                                                  clazz.getDeclaredConstructor().newInstance();
+      assertTrue(clazzInstance.assertData);
+
+      //protected constructor of class in different package which extends ClassTest 
+      Class<?> diffPkgSubClazz = DiffPkgProtectedSubClass.class;
+      DiffPkgProtectedSubClass diffPkgSubClazzInst = (DiffPkgProtectedSubClass) 
+                                                      diffPkgSubClazz.getDeclaredConstructor().newInstance();
+      assertTrue(diffPkgSubClazzInst.assertData);
+    }
+  }
+
+  @Test 
+  public void testProtectedConstructorNewInstanceFailAccess () throws ReflectiveOperationException {
+    if (verifyUnhandledException("java.lang.IllegalAccessException")) {
+      Class<?> clazz = DiffPkgProtectedClass.class;
+      clazz.getDeclaredConstructor().newInstance();
+    }
+  }
+
   static abstract class AbstractClass {
   }
     
   @Test 
-  public void testNewInstanceFailAbstract () throws IllegalAccessException, InstantiationException {
+  public void testNewInstanceFailAbstract () throws ReflectiveOperationException {
     if (verifyUnhandledException("java.lang.InstantiationException")){
       Class<?> clazz = AbstractClass.class;
-      clazz.newInstance();
+      clazz.getDeclaredConstructor().newInstance();
     }
   }
 
@@ -211,7 +253,7 @@ public class ClassTest extends TestJPF implements Cloneable, Serializable {
       NoDefaultCtor.class.newInstance();
     }
   }
-  
+
   @Test 
   public void testIsAssignableFrom () {
     if (verifyNoPropertyViolation()) {
@@ -606,12 +648,20 @@ public class ClassTest extends TestJPF implements Cloneable, Serializable {
       assertNull(c.getResource("not_existing_resources"));
     }
   }  
+}
 
-  @Test
-  public void instanceOfArrayTest() {
-    String[] args = new String[0];
-    if (verifyNoPropertyViolation()) {
-      assert args instanceof Object;
+class TestNewInstance {
+  static class Protected {
+    boolean assertData = true;
+
+    protected Protected() {
+    }
+  }
+
+  static class Private {
+    boolean assertData = true;
+
+    private Private() {
     }
   }
 }

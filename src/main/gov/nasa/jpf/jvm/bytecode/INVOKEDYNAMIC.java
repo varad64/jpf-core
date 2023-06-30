@@ -47,6 +47,7 @@ public class INVOKEDYNAMIC extends Instruction {
   // the first captured variable always represents "this"
   String[] freeVariableTypeNames;
   byte[] freeVariableTypes;
+  int freeVariableSize;
   
   String functionalInterfaceName;
   
@@ -64,6 +65,7 @@ public class INVOKEDYNAMIC extends Instruction {
     freeVariableTypeNames = Types.getArgumentTypeNames(descriptor);
     freeVariableTypes = Types.getArgumentTypes(descriptor);
     functionalInterfaceName = Types.getReturnTypeSignature(descriptor);
+    freeVariableSize = Types.getArgumentsSize(descriptor);
   }
 
   @Override
@@ -118,13 +120,24 @@ public class INVOKEDYNAMIC extends Instruction {
       
       Object[] freeVariableValues = frame.getArgumentsValues(ti, freeVariableTypes);
       
-      funcObjRef = funcObjFactory.getFunctionObject(bootstrapMethodIndex, ti, fiClassInfo, samMethodName, bmi, freeVariableTypeNames, freeVariableValues);
+      funcObjRef = funcObjFactory.getFunctionObject(bootstrapMethodIndex, ti, fiClassInfo, samMethodName, bmi,
+              freeVariableTypeNames, freeVariableValues);
       lastFuncObj = ti.getHeap().get(funcObjRef);
     }
     
-    frame.pop(freeVariableTypes.length);
+    frame.pop(freeVariableSize);
     frame.pushRef(funcObjRef);
     
-    return getNext(ti);
+    if (funcObjRef == MJIEnv.NULL) {
+      // In case of string concat, we return a null ref as a dummy arg.
+      // It is here only to be popped at the helper function's
+      // (java.lang.String.generateStringByConcatenatingArgs) return.
+      // We continue execution from the newly created stack frame (in the helper function).
+      return ti.getPC();
+    } else {
+      // In other cases (for lambda expr), this return value shouldn't be null.
+      // We continue execution from the following bytecode.
+      return getNext(ti);
+    }
   }
 }

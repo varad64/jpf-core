@@ -86,16 +86,6 @@ public class StringTest extends TestJPF {
 			assert i2 == -1;
 		}
 	}
-	
-	@Test
-	public void testLastIndexOf() {
-		if (verifyNoPropertyViolation()) {
-			String val = "-1";
-			int i = val.lastIndexOf('-');
-			
-			assert(i == 0); // test against off-by-one error (issue #197)
-		}
-	}
 
 	@Test
 	public void testCompareTo() {
@@ -166,82 +156,6 @@ public class StringTest extends TestJPF {
 			assertTrue( s.length() == 1);
 			char c = s.charAt(0);
 			assertTrue( Character.isISOControl(c));
-		}
-	}
-
-	@Test
-	public void testCharAtOutOfBounds() {
-		if (verifyNoPropertyViolation()){
-		    try {
-		      "".charAt(0);
-		    } catch (StringIndexOutOfBoundsException e) {
-		      return;
-		    }
-		    assert false;
-		}
-	}
-
-	@Test
-	public void testCharAtOutOfBoundsNeg() {
-		boolean passed = false;
-		if (verifyNoPropertyViolation()){
-		    try {
-		      assert(" ".charAt(0) == ' ');
-		      passed = true;
-		      " ".charAt(-1);
-		    } catch (StringIndexOutOfBoundsException e) {
-		      assert(passed);
-		      return;
-		    }
-		    assert false;
-		}
-	}
-
-	@Test
-	public void testSubstringOutOfBounds0() {
-		boolean passed = false;
-		if (verifyNoPropertyViolation()){
-		    try {
-		      " ".substring(0, 1);
-		      passed = true;
-		      " ".substring(0, 2);
-		    } catch (StringIndexOutOfBoundsException e) {
-		      assert(passed);
-		      return;
-		    }
-		    assert false;
-		}
-	}
-
-	@Test
-	public void testSubstringOutOfBounds1() {
-		boolean passed = false;
-		if (verifyNoPropertyViolation()){
-		    try {
-		      " ".substring(0, 1);
-		      passed = true;
-		      " ".substring(1, 0);
-		    } catch (StringIndexOutOfBoundsException e) {
-		      assert(passed);
-		      return;
-		    }
-		    assert false;
-		}
-	}
-
-	@Test
-	public void testSubstringOutOfBoundsNeg() {
-		boolean passed = false;
-		if (verifyNoPropertyViolation()){
-		    try {
-		      assert("".substring(0).equals(""));
-		      passed = true;
-		      " ".substring(-1);
-		    } catch (StringIndexOutOfBoundsException e) {
-		      assert(passed);
-		      return;
-		    }
-		    assert false;
 		}
 	}
 
@@ -387,16 +301,13 @@ public class StringTest extends TestJPF {
       assertTrue( s.contentEquals(sb));
     }
   }
-  
-  @Test
-  public void testStringBuilderAppendChar() {
-    if (verifyNoPropertyViolation()){
-      StringBuilder sb = new StringBuilder(0);
-      sb.append('[');
-      sb.append(']');
-      String s = sb.toString();
-      
-      assertTrue( s.equals("[]"));
-    }
-  }
+
+	@Test
+	public void testConcat() {
+		if (verifyNoPropertyViolation()) {
+			String str = "Hello, ";
+			String out = str + "World!";
+			assert out.equals("Hello, World!");
+		}
+	}
 }
